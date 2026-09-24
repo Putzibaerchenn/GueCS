@@ -1,0 +1,1960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>GueCS — Guess the Spot</title>
+<link rel="stylesheet" href="theme.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js" defer></script>
+<script>
+  /* apply saved color theme before first paint */
+  try { var t = localStorage.getItem('guecs_theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<style>
+  /* page-specific layout only — tokens/base/buttons live in theme.css */
+  body { overflow: hidden; user-select: none; }
+
+  /* ---------- Screens ---------- */
+  .screen { position: fixed; inset: 0; display: none; flex-direction: column; z-index: 1; }
+  .screen.active { display: flex; }
+
+  /* ---------- Menu screens (home + setup) ---------- */
+  #start, #home {
+    align-items: center; justify-content: center; text-align: center;
+    padding: 24px; gap: 20px;
+  }
+  #start .wordmark, #home .wordmark { margin-bottom: 2px; }
+  #start .tagline, #home .tagline { color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 360px; }
+  #start .tagline strong { color: var(--text); }
+
+  .setup-card { width: min(100%, 420px); padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+  .setup-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .setup-label {
+    color: var(--muted-2); font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 2px; text-align: left;
+  }
+  .setup-divider { height: 1px; background: var(--line); }
+
+  .map-tabs { display: flex; gap: 8px; }
+  .map-tab {
+    padding: 10px 22px; border-radius: 999px; border: 3px solid var(--line);
+    background: var(--panel-2); color: var(--muted); font-size: 14px; font-weight: 700;
+    transition: background .15s ease, color .15s ease, border-color .15s ease;
+    box-shadow: var(--edge-glow-sm);
+  }
+  .map-tab.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+
+  .rounds-box { display: flex; align-items: center; }
+  .rounds-stepper { display: flex; align-items: center; gap: 12px; }
+  .rounds-stepper button {
+    width: 40px; height: 40px; border-radius: 12px; font-size: 22px;
+    background: var(--panel-2); color: var(--text);
+    border: 3px solid var(--line);
+    transition: background .15s ease, border-color .15s ease;
+    box-shadow: var(--edge-glow-sm);
+  }
+  .rounds-stepper button:active { background: #263040; }
+  .rounds-stepper button:disabled { opacity: .35; cursor: default; }
+  #rounds-val { font-size: 24px; font-weight: 700; min-width: 40px; }
+
+  .play-cta { width: min(100%, 420px); padding: 18px 20px; border-radius: var(--radius-lg); }
+  #recap .btn-primary { margin-top: 10px; }
+
+  /* ---------- Map backdrop ---------- */
+  .map-bg {
+    position: fixed; inset: 0;
+    z-index: 0; pointer-events: none;
+    background-position: center; background-size: cover;
+    opacity: 0; transition: opacity .7s ease;
+    filter: blur(3px) saturate(.7) contrast(.95) brightness(.82);
+  }
+  .map-bg.on { opacity: .10; }
+  #home-bg { background-image: url("assets/images/home-bg.webp"); }
+
+  /* ---------- Theme changer (top-right, menu screens only) ---------- */
+  .theme-control { position: fixed; top: 14px; right: 14px; z-index: 50; }
+  .theme-control.hidden { display: none; }
+  .theme-toggle {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 3px solid var(--accent-line); background: var(--panel-2);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    box-shadow: var(--edge-glow-sm);
+    transition: border-color .15s ease, transform .12s ease;
+  }
+  .theme-toggle:hover { border-color: var(--accent); }
+  .theme-toggle:active { transform: scale(.94); }
+  .theme-dot {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 65%, transparent);
+    transition: background .2s ease, box-shadow .2s ease;
+  }
+  .theme-menu {
+    position: absolute; top: 48px; right: 0;
+    display: none; flex-wrap: wrap; gap: 10px;
+    width: 138px; padding: 12px;
+    background: var(--panel); border: 3px solid var(--accent-line);
+    border-radius: 14px; box-shadow: var(--shadow-lg), var(--edge-glow-sm);
+  }
+  .theme-menu.open { display: flex; }
+  .swatch {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 2px solid var(--bg); padding: 0;
+    box-shadow: 0 0 0 1px var(--line);
+    transition: transform .12s ease, box-shadow .15s ease;
+  }
+  .swatch:hover { transform: scale(1.15); }
+  .swatch.active { box-shadow: 0 0 0 2px var(--accent); }
+  .sw-orange { background: #f0a519; }
+  .sw-purple { background: #a371f7; }
+  .sw-green { background: #3fb950; }
+  .sw-red { background: #ff5a47; }
+  .sw-cyan { background: #22d3ee; }
+  .sw-white { background: #f2f4f8; }
+
+  /* ---------- Round screen ---------- */
+  #stage { position: absolute; inset: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; background: transparent; }
+  /* fixed 16:9 crop window — the screenshot is zoomed inside this every round */
+  #zoom-frame {
+    --frame: min(calc(100vw - 24px), calc(100vh - 172px), 1280px);
+    width: var(--frame);
+    height: calc(var(--frame) * 9 / 16);
+    position: relative;
+    overflow: hidden;
+    border: 3px solid color-mix(in srgb, var(--accent) 65%, transparent);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--edge-glow);
+    background: var(--bg);
+  }
+  #zoom-frame canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    transition: opacity .3s ease;
+  }
+  #zoom-frame canvas.revealed { opacity: 1; }
+  .hud { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; pointer-events: none; }
+  .round-pill {
+    padding: 6px 14px; font-size: 13px; font-weight: 600;
+  }
+  #round-num { color: var(--muted); font-weight: 500; }
+  #timer-wrap { width: 120px; height: 34px; background: rgba(10,14,20,.72); border: 3px solid var(--accent-line); border-radius: 999px; overflow: hidden; position: relative; backdrop-filter: blur(4px); box-shadow: var(--edge-glow-sm); }
+  #timer-wrap.hidden { display: none; }
+  #timer-bar { height: 100%; width: 100%; background: var(--accent); transition: width .4s linear; }
+  #timer-bar.low { background: var(--bad); }
+  #timer-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+
+  #map-btn {
+    position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: color-mix(in srgb, var(--accent) 94%, transparent);
+    color: var(--on-accent); border: none;
+    font-size: 16px; font-weight: 700; padding: 13px 40px; border-radius: 999px;
+    box-shadow: 0 4px 18px rgba(0,0,0,.5); transition: transform .1s;
+  }
+  #map-btn:active { transform: translateX(-50%) scale(.96); }
+  #map-btn.hidden { display: none; }
+
+  /* ---------- Round countdown (3…2…1) ---------- */
+  #countdown {
+    position: absolute; inset: 0; z-index: 20; pointer-events: none;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(58% 58% at 50% 50%, rgba(9,13,18,.42), transparent 74%);
+  }
+  #countdown.hidden { display: none; }
+  #cd-num {
+    font-size: clamp(90px, 22vw, 150px);
+    font-weight: 800; line-height: 1;
+    color: var(--accent);
+    opacity: 0;
+    text-shadow:
+      0 0 40px color-mix(in srgb, var(--accent) 90%, transparent),
+      0 0 110px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  #cd-num.pop { opacity: 1; animation: cd-pop .65s cubic-bezier(.2, .7, .2, 1) forwards; }
+  @keyframes cd-pop {
+    0%   { transform: scale(1.35); opacity: 0; }
+    15%  { transform: scale(1);   opacity: 1; }
+    75%  { transform: scale(.96); opacity: 1; }
+    100% { transform: scale(.9);  opacity: 0; }
+  }
+
+  /* ---------- Score popup ---------- */
+  #score-pop {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.55); z-index: 30; pointer-events: none;
+  }
+  #score-pop.show { display: flex; }
+  #score-pop .card {
+    background: var(--panel); border: 3px solid var(--accent-line); border-radius: 18px;
+    padding: 26px 40px; text-align: center; box-shadow: var(--shadow-lg), var(--edge-glow);
+  }
+  #score-pop .label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 2px; }
+  #score-pop .value { font-size: 52px; font-weight: 800; margin: 6px 0; }
+  #score-pop .detail { color: var(--muted); font-size: 14px; }
+
+  /* ---------- Bottom sheet minimap ---------- */
+  #sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 20;
+    background: var(--panel); border-top: 3px solid var(--accent-line);
+    border-radius: 20px 20px 0 0; padding: 10px 12px calc(14px + env(safe-area-inset-bottom));
+    transform: translateY(105%); transition: transform .28s cubic-bezier(.2,.8,.25,1);
+    display: flex; flex-direction: column; gap: 8px;
+    box-shadow: 0 -16px 34px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  #sheet.open { transform: translateY(0); }
+  #sheet .grab { width: 44px; height: 4px; border-radius: 2px; background: var(--line); margin: 2px auto; }
+  #sheet .head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
+  #sheet .head .title { font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: 1px; }
+  #lock-wrap { display: flex; gap: 10px; }
+  #lock-wrap button {
+    border: 3px solid var(--accent-line); background: var(--panel-2); color: var(--text);
+    border-radius: 12px; padding: 10px 18px; font-size: 14px; font-weight: 600;
+    box-shadow: var(--edge-glow-sm);
+  }
+  #lock {
+    background: var(--accent) !important; color: #1a1202 !important; border-color: var(--accent) !important;
+  }
+  #lock:disabled, #close-sheet:disabled { opacity: .4; cursor: default; }
+  #radar-box { position: relative; width: min(100%, 38vh); aspect-ratio: 1; margin: 0 auto; border-radius: 12px; overflow: hidden; touch-action: none; border: 3px solid var(--accent-line); box-shadow: var(--edge-glow); }
+  #radar { position: absolute; inset: 0; width: 100%; height: 100%; background: #0b0e12; }
+  #radar img { width: 100%; height: 100%; object-fit: contain; opacity: .95; }
+  #radar svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #pin-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--muted); background: rgba(10,14,20,.8); padding: 4px 12px; border-radius: 999px; pointer-events: none; }
+
+  /* ---------- Recap ---------- */
+  #recap { align-items: center; justify-content: flex-start; padding: 24px 16px calc(20px + env(safe-area-inset-bottom)); overflow-y: auto; }
+  #recap h1 { font-size: 26px; margin: 6px 0 2px; }
+  #recap .sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  #recap .total { font-size: 46px; font-weight: 800; }
+  #recap-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 520px; margin-top: 12px; }
+  .recap-round { background: var(--panel); border: 3px solid var(--accent-line); border-radius: 12px; padding: 10px 12px; box-shadow: var(--edge-glow-sm); }
+  .recap-round .r-name { font-size: 13px; font-weight: 600; }
+  .recap-round .r-score { font-size: 18px; font-weight: 800; margin-top: 2px; }
+  .recap-round .r-score.zero { color: var(--bad); }
+  .recap-round .r-sub { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.3; }
+  #recap-radar-wrap { width: 100%; max-width: 520px; aspect-ratio: 1; position: relative; background: #0b0e12; border: 3px solid var(--accent-line); border-radius: 12px; overflow: hidden; margin-top: 12px; box-shadow: var(--edge-glow); }
+  #recap-radar-wrap img { width: 100%; height: 100%; object-fit: contain; }
+  #recap-radar-wrap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  /* callout search under the pick radar — type to narrow, tap to lock in */
+  #callout-pick {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    width: 100%; margin: 0 auto; padding: 6px 4px 2px;
+  }
+  #callout-search {
+    width: 100%; max-width: 480px;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 3px solid var(--accent-line);
+    border-radius: 999px;
+    padding: 10px 18px;
+    font-size: 14px; font-weight: 600;
+    outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  #callout-search:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  #callout-search::placeholder { color: var(--muted); }
+  #callout-results {
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    max-height: 108px; overflow-y: auto; width: 100%;
+  }
+  #callout-results .chip {
+    flex: 0 0 auto;
+    border: 3px solid var(--accent-line);
+    background: var(--panel-2);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 13px; font-weight: 700;
+    transition: background .15s ease, color .15s ease, border-color .15s ease, transform .15s ease;
+  }
+  #callout-results .chip:active { transform: scale(.96); }
+  #callout-results .chip:hover { filter: brightness(1.12); color: var(--text); }
+  .search-none { color: var(--muted); font-size: 13px; padding: 8px 2px; }
+
+  /* callout regions — translucent theme fill + same-color glowing outline;
+     hover brightens and grows the region; no text, names live in the search */
+  #radar-svg .sec, #recap-svg .sec {
+    stroke: var(--dot, var(--accent));
+    stroke-width: 2.4;
+    stroke-opacity: 1;
+    fill: var(--accent);
+    fill-opacity: 0.16;
+    filter: drop-shadow(0 0 5px var(--dot, var(--accent)));
+    transform-box: fill-box;
+    transform-origin: center;
+    pointer-events: all;   /* #radar svg is pointer-events:none; re-enable for regions */
+    transition: stroke-opacity .15s ease, stroke-width .15s ease, fill-opacity .15s ease, filter .15s ease, transform .15s ease;
+  }
+  #radar-svg .sec:hover, #recap-svg .sec:hover {
+    stroke-opacity: 1;
+    stroke-width: 3.1;
+    fill-opacity: 0.22;
+    filter: drop-shadow(0 0 9px var(--dot, var(--accent))) brightness(1.12);
+    transform: scale(1.06);
+    cursor: pointer;
+  }
+
+  /* MP: the region you locked in — glows var(--sel) (green, red on the
+     green theme) and pulses gently so everyone sees exactly what you picked */
+  #radar-svg .sec.sel {
+    stroke: var(--sel);
+    stroke-width: 3.4;
+    fill: var(--sel);
+    fill-opacity: 0.4;
+    pointer-events: none;
+    filter: drop-shadow(0 0 6px var(--sel)) drop-shadow(0 0 16px var(--sel));
+    animation: sel-glow 1.3s ease-in-out infinite;
+  }
+  @keyframes sel-glow {
+    0%, 100% { fill-opacity: .32; filter: drop-shadow(0 0 5px var(--sel)) drop-shadow(0 0 12px var(--sel)); }
+    50%      { fill-opacity: .46; filter: drop-shadow(0 0 9px var(--sel)) drop-shadow(0 0 22px var(--sel)); }
+  }
+
+  /* ---------- Multiplayer ---------- */
+  .hidden { display: none !important; }
+  #mp, #mp-end { align-items: center; justify-content: center; text-align: center; padding: 24px; gap: 18px; }
+  #mp input, #mp-join input {
+    width: 100%; padding: 10px 14px; box-sizing: border-box;
+    background: var(--panel-2); color: var(--text);
+    border: 3px solid var(--line); border-radius: var(--radius-lg);
+    font-size: 16px; outline: none;
+    transition: border-color .15s ease;
+  }
+  #mp input:focus { border-color: var(--accent); }
+  #mp input::placeholder { color: var(--muted); }
+  #mp .player-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 14px; border-radius: 999px;
+    background: var(--panel-2); border: 3px solid var(--line);
+    font-size: 14px; font-weight: 600;
+  }
+  #mp .player-chip.me { border-color: var(--accent); }
+  #mp .player-dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    box-shadow: 0 0 8px currentColor;
+  }
+  #mp #mp-err, #mp #mp-err2 { min-height: 18px; font-size: 13px; color: var(--bad); }
+  #mp .btn-secondary {
+    width: 100%; padding: 14px 20px; border-radius: var(--radius-lg);
+    background: transparent; color: var(--text);
+    border: 3px solid var(--line); font-size: 16px; font-weight: 700;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  #mp .btn-secondary:hover { border-color: var(--accent); background: var(--panel-2); }
+  #mp-end .sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  #mp-end #mp-standings .stand-row {
+    display: flex; align-items: center; gap: 14px; padding: 14px 18px;
+    background: var(--panel-2); border: 3px solid var(--line);
+    border-radius: var(--radius-lg); text-align: left;
+  }
+  #mp-end .stand-row.first { border-color: var(--accent); }
+  #mp-end .stand-rank { font-size: 20px; font-weight: 700; width: 34px; color: var(--muted); }
+  #mp-end .stand-row.first .stand-rank { color: var(--accent); }
+  #mp-end .stand-name { font-weight: 700; flex: 1; }
+  #mp-end .stand-score { font-size: 20px; font-weight: 700; }
+
+  /* MP waiting screen (inside the sheet, shown after you lock in) */
+  #mp-wait {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    width: 100%; margin: 0 auto; padding: 10px 4px 4px; text-align: center;
+  }
+  #mp-wait .mp-wait-title {
+    font-size: 18px; font-weight: 800; letter-spacing: 1px; color: var(--sel);
+    text-shadow: 0 0 14px color-mix(in srgb, var(--sel) 60%, transparent);
+  }
+  #mp-wait .mp-wait-sub { font-size: 13px; color: var(--muted); }
+  #mp-wait .mp-wait-count { padding: 6px 16px; font-size: 13px; font-weight: 700; margin-top: 4px; }
+
+  /* ---------- page-specific hover polish ---------- */
+  @media (hover: hover) and (pointer: fine) {
+    #map-btn:hover { background: var(--accent-hover); }
+    #lock-wrap button:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+    .recap-round:hover { border-color: var(--muted); }
+  }
+</style>
+</head>
+<body>
+
+<!-- faint map backdrop (swaps with the selected map) -->
+<div class="map-bg" aria-hidden="true" id="map-bg"></div>
+
+<!-- home screen backdrop (Steam screenshot, same treatment) -->
+<div class="map-bg" aria-hidden="true" id="home-bg"></div>
+
+<!-- ambient color streams behind the UI (menu screens only) -->
+<div class="fluid-bg" aria-hidden="true"></div>
+
+<!-- theme changer — top-right, visible on menu screens only -->
+<div class="theme-control" id="theme-control">
+  <button class="theme-toggle" id="theme-toggle" aria-label="Change color theme" aria-haspopup="true" aria-expanded="false">
+    <span class="theme-dot"></span>
+  </button>
+  <div class="theme-menu" id="theme-menu" role="menu" aria-label="Color theme">
+    <button class="swatch sw-orange active" data-theme="orange" role="menuitemradio" aria-checked="true" aria-label="Orange theme" title="Orange"></button>
+    <button class="swatch sw-purple" data-theme="purple" role="menuitemradio" aria-checked="false" aria-label="Purple theme" title="Purple"></button>
+    <button class="swatch sw-green" data-theme="green" role="menuitemradio" aria-checked="false" aria-label="Green theme" title="Green"></button>
+    <button class="swatch sw-red" data-theme="red" role="menuitemradio" aria-checked="false" aria-label="Red theme" title="Red"></button>
+    <button class="swatch sw-cyan" data-theme="cyan" role="menuitemradio" aria-checked="false" aria-label="Cyan theme" title="Cyan"></button>
+    <button class="swatch sw-white" data-theme="white" role="menuitemradio" aria-checked="false" aria-label="White theme" title="White"></button>
+  </div>
+</div>
+
+<!-- ================= HOME ================= -->
+<div class="screen active" id="home">
+  <h1 class="wordmark">GueCS</h1>
+  <p class="tagline">A screenshot, a guess, no hints. Choose a map, set the rounds, call out the spot.</p>
+  <button class="btn-primary play-cta" id="start-game-btn">Start Game</button>
+  <button class="btn-primary play-cta" id="mp-btn" style="margin-top:0">Multiplayer</button>
+</div>
+
+<!-- ================= START (menu) ================= -->
+<div class="screen" id="start">
+  <h1 class="wordmark">GueCS</h1>
+  <p class="tagline">Where am I on <strong id="map-name">Dust II</strong>? A screenshot, a guess, no hints.</p>
+  <div class="card setup-card">
+    <div class="setup-row">
+      <span class="setup-label">Map</span>
+      <div class="map-tabs" id="map-tabs">
+        <button class="map-tab active" data-map="dust2">Dust II</button>
+        <button class="map-tab" data-map="mirage">Mirage</button>
+      </div>
+    </div>
+    <div class="setup-divider"></div>
+    <div class="setup-row">
+      <span class="setup-label">Rounds</span>
+      <div class="rounds-box">
+        <div class="rounds-stepper">
+          <button id="rounds-minus" aria-label="Fewer rounds">−</button>
+          <span id="rounds-val">5</span>
+          <button id="rounds-plus" aria-label="More rounds">+</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <button class="btn-primary play-cta" id="start-btn">Play</button>
+</div>
+
+<!-- ================= MULTIPLAYER ================= -->
+<div class="screen" id="mp">
+  <div id="mp-join">
+    <h1 class="wordmark">GueCS Online</h1>
+    <p class="tagline">Host a room, share the code, everyone guesses the same shot.</p>
+    <div class="card setup-card">
+      <div class="setup-row">
+        <span class="setup-label">Nickname</span>
+        <input id="mp-name" type="text" maxlength="12" placeholder="Your name" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="setup-divider"></div>
+      <div class="setup-row">
+        <span class="setup-label">Or join</span>
+        <input id="mp-code" type="text" maxlength="4" placeholder="CODE" style="text-transform:uppercase;letter-spacing:4px;text-align:center" autocomplete="off" spellcheck="false">
+      </div>
+      <div id="mp-err" style="color:var(--bad);min-height:18px;font-size:13px"></div>
+      <button class="btn-primary play-cta" id="mp-host-btn">Create room</button>
+      <button class="btn-primary play-cta" id="mp-join-btn" style="margin-top:0">Join room</button>
+      <button class="btn-secondary" id="mp-back-btn">Back</button>
+    </div>
+  </div>
+
+  <div id="mp-lobby" class="hidden">
+    <h1 class="wordmark">Room <span id="mp-code-display">····</span></h1>
+    <p class="tagline" id="mp-lobby-sub">Waiting for players…</p>
+    <div class="card setup-card">
+      <div class="setup-row">
+        <span class="setup-label">Players <span id="mp-player-count">1</span>/8</span>
+        <div id="mp-players" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end"></div>
+      </div>
+      <div class="setup-divider"></div>
+      <div class="setup-row" id="mp-host-cfg">
+        <span class="setup-label">Map</span>
+        <div class="map-tabs" id="mp-map-tabs" style="gap:6px">
+          <button class="map-tab" data-map="dust2">Dust II</button>
+          <button class="map-tab" data-map="mirage">Mirage</button>
+        </div>
+      </div>
+      <div class="setup-divider"></div>
+      <div class="setup-row" id="mp-host-cfg2">
+        <span class="setup-label">Rounds</span>
+        <div class="rounds-stepper">
+          <button id="mp-rounds-minus" aria-label="Fewer rounds">−</button>
+          <span id="mp-rounds-val">5</span>
+          <button id="mp-rounds-plus" aria-label="More rounds">+</button>
+        </div>
+      </div>
+      <div id="mp-err2" style="color:var(--bad);min-height:18px;font-size:13px"></div>
+      <button class="btn-primary play-cta" id="mp-start-btn">Start match</button>
+      <button class="btn-secondary" id="mp-leave-btn">Leave room</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ROUND ================= -->
+<div class="screen" id="round">
+  <div id="stage"><div id="zoom-frame"><canvas id="shot" width="1280" height="720"></canvas></div></div>
+  <div class="hud">
+    <div class="pill round-pill"><span id="round-num">Round 1</span></div>
+    <div class="pill round-pill" id="mp-answered" style="display:none">0/0 answered</div>
+    <div id="timer-wrap"><div id="timer-bar"></div><div id="timer-text">30</div></div>
+  </div>
+  <button id="map-btn">🗺&nbsp; Map</button>
+
+  <div id="countdown" class="countdown hidden" aria-hidden="true"><span id="cd-num">3</span></div>
+
+  <div id="score-pop"><div class="card">
+    <div class="label">Round Score</div>
+    <div class="value" id="score-val">0</div>
+    <div class="detail" id="score-detail"></div>
+    <div id="mp-round-results" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:10px;font-size:13px;text-align:left"></div>
+  </div></div>
+
+  <div id="sheet">
+    <div class="grab"></div>
+    <div class="head">
+      <span class="title">SELECT A CALLOUT</span>
+      <div id="lock-wrap">
+        <button id="close-sheet">Close</button>
+      </div>
+    </div>
+    <div id="radar-box">
+      <div id="radar">
+        <img id="radar-img" src="assets/images/radar.webp" alt="Dust II minimap" draggable="false">
+        <svg id="radar-svg" viewBox="0 0 1000 1000"></svg>
+      </div>
+      <div id="pin-hint">Type a callout to lock it in — or tap the map</div>
+    </div>
+    <div id="callout-pick">
+      <input id="callout-search" type="text" placeholder="Search a callout…" autocomplete="off" spellcheck="false">
+      <div id="callout-results"></div>
+    </div>
+    <div id="mp-wait" class="hidden">
+      <div class="mp-wait-title" id="mp-wait-title">Waiting for the other players…</div>
+      <div class="mp-wait-sub" id="mp-wait-sub"></div>
+      <div class="pill mp-wait-count" id="mp-wait-count">0/0 answered</div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= RECAP ================= -->
+<div class="screen" id="recap">
+  <h1>Game over</h1>
+  <p class="sub" id="recap-sub">Dust II · N rounds</p>
+  <div class="total" id="recap-total">0 <span style="font-size:20px;color:var(--muted)">/ 100</span></div>
+  <div id="recap-rounds"></div>
+  <div id="recap-radar-wrap">
+    <img id="recap-radar-img" src="assets/images/radar.webp" alt="Dust II minimap">
+    <svg id="recap-svg" viewBox="0 0 1000 1000"></svg>
+  </div>
+  <button class="btn-primary" id="again-btn">Play again</button>
+</div>
+
+<!-- ================= MULTIPLAYER LEADERBOARD ================= -->
+<div class="screen" id="mp-end">
+  <h1 id="mp-end-title">Final scores</h1>
+  <p class="sub" id="mp-end-sub"></p>
+  <div id="mp-standings" style="display:flex;flex-direction:column;gap:10px;width:min(100%,420px)"></div>
+  <button class="btn-primary" id="mp-done-btn">Done</button>
+</div>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   MAPS — each map: its own locations, radar image, and meter scale.
+   x,y are normalized (0..1) positions on that map's radar image.
+   Nudge a spot by editing its two numbers — or better, run
+   calibrate.html, drag the golden dot to the truth, and its saved
+   spots (localStorage) override these on load (see SPOTS below).
+   Dust II's storage key stays 'guecs_cal' so spots already saved in
+   this browser keep working; Mirage uses 'guecs_cal_mirage'.
+   ===================================================================== */
+const ROUND_SECONDS = 30;
+const REVEAL_SECONDS = 3;
+const POINTS_PER_ROUND = 100;
+
+const MAPS = {
+  dust2: {
+    key: 'dust2',
+    name: 'Dust II',
+    radar: 'assets/images/radar.webp',
+    bg: 'assets/images/de_dust2.webp',
+    diagMeters: 90,                // full map diagonal ~= this many meters (for display only)
+    storageKey: 'guecs_cal',
+    locations: [
+      { name: 'T Spawn',                      img: 'Dust2-tspawn1.webp',  x: 0.5344, y: 0.9637 },
+      { name: 'T Spawn — Football',           img: 'Dust2-tspawn2.webp',  x: 0.1635, y: 0.7553 },
+      { name: 'A Long Entrance (T)',          img: 'Dust2-tspawn4.webp',  x: 0.5784, y: 0.7973 },
+      { name: 'Suicide Ramp',                 img: 'Dust2-tspawn5.webp',  x: 0.456,  y: 0.8394 },
+      { name: 'CT Spawn — B Doors / Window',  img: 'Dust2-ctspawn1.webp', x: 0.3432, y: 0.1644 },
+      { name: 'CT Spawn',                     img: 'Dust2-ctspawn2.webp', x: 0.653,  y: 0.1625 },
+      { name: 'A Approach (CT Spawn)',        img: 'Dust2-ctspawn3.webp', x: 0.6836, y: 0.239 },
+      { name: 'A Site — from A Long',         img: 'Dust2-asite1.webp',   x: 0.913,  y: 0.2849 },
+      { name: 'A Site — from A Short',        img: 'Dust2-asite2.webp',   x: 0.6338, y: 0.2715 },
+      { name: 'B Site — from Tunnels',        img: 'Dust2-bsite1.webp',   x: 0.1463, y: 0.2964 },
+      { name: 'B Site — Car & Tunnel Mouth',  img: 'Dust2-bsite2.webp',   x: 0.2189, y: 0.2275 },
+      { name: 'B Platform',                   img: 'Dust2-bsite3.webp',   x: 0.131,  y: 0.1243 },
+      { name: 'Lower Tunnels — from Mid',     img: 'Dust2-btun1.webp',    x: 0.4082, y: 0.4015 },
+      { name: 'B Tunnels — from T',           img: 'Dust2-btun3.webp',    x: 0.1807, y: 0.4971 },
+      { name: 'B Tunnels — toward B',         img: 'Dust2-btun4.webp',    x: 0.1119, y: 0.4187 },
+      { name: 'Mid — from T Mid',             img: 'Dust2-mid1.webp',     x: 0.4962, y: 0.6272 },
+      { name: 'Mid — from CT Mid',            img: 'Dust2-mid2.webp',     x: 0.4522, y: 0.3824 },
+      { name: 'A Long — T Entrance',          img: 'Dust2-along1.webp',   x: 0.674,  y: 0.6405 },
+      { name: 'A Long — Pit',                 img: 'Dust2-along3.webp',   x: 0.8231, y: 0.5143 },
+      { name: 'A Short / Catwalk',            img: 'Dust2-ashort.webp',   x: 0.653,  y: 0.4092 },
+    ],
+    /* Callout sectors for score-by-callout mode. Each ring is a polygon of
+       (x,y) in normalized radar space, same as spots. The rings should tile
+       the radar with no gaps (a tap anywhere lands in one sector). These are
+       DRAFT boundaries derived from the calibrated spots — refine the
+       coordinates, or hand me a sketch and I'll redraw them. */
+    sectors: [
+      { name: 'B Site',    ring: [[0, 0], [0.34, 0], [0.34, 0.34], [0, 0.34]] },
+      { name: 'CT Spawn',  ring: [[0.34, 0], [1, 0], [1, 0.24], [0.55, 0.24], [0.55, 0.34], [0.34, 0.34]] },
+      { name: 'A Site',    ring: [[0.55, 0.24], [1, 0.24], [1, 0.34], [0.55, 0.34]] },
+      { name: 'B Tunnels', ring: [[0, 0.34], [0.30, 0.34], [0.30, 0.66], [0, 0.66]] },
+      { name: 'Mid',       ring: [[0.30, 0.34], [0.62, 0.34], [0.62, 0.66], [0.30, 0.66]] },
+      { name: 'T Spawn',   ring: [[0, 0.66], [0.62, 0.66], [0.62, 1], [0, 1]] },
+      { name: 'A Long',    ring: [[0.62, 0.34], [1, 0.34], [1, 1], [0.62, 1]] },
+    ],
+  },
+  mirage: {
+    key: 'mirage',
+    name: 'Mirage',
+    radar: 'assets/images/mirage-radar.webp',
+    bg: 'assets/images/de_mirage.webp',
+    diagMeters: 105,
+    storageKey: 'guecs_cal_mirage',
+    locations: [
+      { name: 'T Spawn',                      img: 'Mirage-tspawn.webp',           x: 0.8834, y: 0.2968 },
+      { name: 'T Spawn — Palace Road',        img: 'Mirage-tspawn-palace.webp',    x: 0.8854, y: 0.6128 },
+      { name: 'T Apartments Gate',            img: 'Mirage-tapts-entrance.webp',   x: 0.8854, y: 0.2737 },
+      { name: 'T Ways — Mid Entrance',        img: 'Mirage-tways-mid.webp',        x: 0.8468, y: 0.2101 },
+      { name: 'Top Mid',                      img: 'Mirage-topmid.webp',           x: 0.71,   y: 0.3777 },
+      { name: 'Bottom Mid',                   img: 'Mirage-bottommid.webp',        x: 0.4403, y: 0.4433 },
+      { name: 'Connector — to Mid',           img: 'Mirage-connector-mid.webp',    x: 0.5173, y: 0.5569 },
+      { name: 'Market Window — to Mid',       img: 'Mirage-window-mid.webp',       x: 0.396,  y: 0.4413 },
+      { name: 'Ladder Room',                  img: 'Mirage-ladder-room.webp',      x: 0.4249, y: 0.345 },
+      { name: 'Palace — from T Spawn',        img: 'Mirage-palace.webp',           x: 0.8179, y: 0.6109 },
+      { name: 'T Apartments',                 img: 'Mirage-apartments.webp',       x: 0.7505, y: 0.16 },
+      { name: 'Underpass',                    img: 'Mirage-underpass.webp',        x: 0.4441, y: 0.2409 },
+      { name: 'Apartments — toward Van',      img: 'Mirage-apartments-van.webp',   x: 0.4249, y: 0.1793 },
+      { name: 'Market — from CT',             img: 'Mirage-market-ct.webp',        x: 0.2938, y: 0.4625 },
+      { name: 'Market — toward B',            img: 'Mirage-market-b.webp',         x: 0.1917, y: 0.4452 },
+      { name: 'CT Spawn',                     img: 'Mirage-ctspawn.webp',          x: 0.315,  y: 0.7573 },
+      { name: 'A Site — Balcony',             img: 'Mirage-balcony.webp',          x: 0.5617, y: 0.7092 },
+      { name: 'A Site — Tetris',              img: 'Mirage-tetris.webp',           x: 0.6109, y: 0.6219 },
+      { name: 'B Site — from Van',            img: 'Mirage-bsite-van.webp',        x: 0.1724, y: 0.1793 },
+      { name: 'B Site — from Market Door',    img: 'Mirage-bsite-doors.webp',      x: 0.1782, y: 0.3681 },
+    ],
+    /* Callout sectors — same format as Dust II. Draft boundaries from the
+       calibrated spots; refine freely (must tile the radar with no gaps). */
+    sectors: [
+      { name: 'T Spawn',  ring: [[0.74, 0], [1, 0], [1, 0.40], [0.74, 0.40]] },
+      { name: 'Palace',   ring: [[0.74, 0.40], [1, 0.40], [1, 1], [0.74, 1]] },
+      { name: 'Top Mid',  ring: [[0.55, 0], [0.74, 0], [0.74, 0.60], [0.55, 0.60]] },
+      { name: 'Mid',      ring: [[0.32, 0], [0.55, 0], [0.55, 0.60], [0.32, 0.60]] },
+      { name: 'B Site',   ring: [[0, 0], [0.32, 0], [0.32, 0.40], [0, 0.40]] },
+      { name: 'Market',   ring: [[0, 0.40], [0.32, 0.40], [0.32, 0.60], [0, 0.60]] },
+      { name: 'A Site',   ring: [[0.45, 0.60], [0.74, 0.60], [0.74, 1], [0.45, 1]] },
+      { name: 'CT Spawn', ring: [[0, 0.60], [0.45, 0.60], [0.45, 1], [0, 1]] },
+    ],
+  },
+};
+
+/* =====================================================================
+   CALIBRATION OVERRIDES
+   calibrate.html saves corrected spots to per-map localStorage keys as
+   { img: {x, y} }. If present they override the built-in estimates on
+   load, so a calibration run changes the game immediately.
+   resolvedMap(key).spots is the table used everywhere below.
+   ===================================================================== */
+function readCalibrationOverrides(storageKey) {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return {};
+    const cal = JSON.parse(raw);
+    return (cal && typeof cal === 'object') ? cal : {};
+  } catch (e) { return {}; }
+}
+function resolvedMap(key) {
+  const m = MAPS[key];
+  const over = readCalibrationOverrides(m.storageKey);
+  const map = Object.assign({}, m, {
+    spots: m.locations.map(l =>
+      over[l.img] ? { ...l, x: over[l.img].x, y: over[l.img].y } : l
+    )
+  });
+  // callout sectors from sectors.html override the built-in drafts
+  const secs = readSectorOverrides(key);
+  if (secs) map.sectors = secs;
+  return map;
+}
+
+/* sectors.html saves working sector sets under 'guecs_sectors_<key>';
+   if present they replace the built-in drafts (same idea as the
+   calibrated spots). Anything not shaped like a sectors array is ignored. */
+function readSectorOverrides(key) {
+  try {
+    const raw = localStorage.getItem('guecs_sectors_' + key);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!Array.isArray(s) || !s.length) return null;
+    const ok = s.every(x => x && typeof x.name === 'string' &&
+      Array.isArray(x.ring) && x.ring.length >= 3 &&
+      x.ring.every(p => Array.isArray(p) && p.length === 2 && isFinite(p[0]) && isFinite(p[1])));
+    return ok ? s : null;
+  } catch (e) { return null; }
+}
+
+/* map pick: URL param (?map=..) wins, else Dust II */
+const PARAMS = new URLSearchParams(location.search);
+let mapKey = (PARAMS.get('map') && MAPS[PARAMS.get('map')]) ? PARAMS.get('map') : 'dust2';
+
+/* ================= state ================= */
+let currentLoc = null;   // the random spot chosen for the current round
+let gameMap = null;     // resolved map being played ({ ...MAPS[k], spots })
+let idx = 0;            // current round number
+let rounds = 5;
+let results = [];       // {loc name, score, guessSec, trueSec, sd}
+let selSec = -1;        // selected callout sector index this round (-1 = none)
+let locked = false;
+let countingDown = false;
+let timer = null;
+let timerLeft = ROUND_SECONDS;
+let phase = 'start';    // 'start' | 'play' | 'reveal' | 'recap'
+
+const $ = id => document.getElementById(id);
+const rnd = Math.random;
+
+/* ================ sectors (callout scoring) ================
+   Scoring is by callout region — the whole guess is picking one:
+   same sector = full points, 1 sector away = half, 2 away = quarter,
+   3+ away = zero (distance is hops through the adjacency graph of
+   the sector polygons). Gaps between hand-drawn rings resolve to the
+   nearest region via sectorIdxAt, so nobody gets 0 for a fair call. */
+function pointInRing(x, y, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
+/* distance from a point to a line segment, in normalized radar units */
+function distToSeg(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+  const cx = ax + t * dx, cy = ay + t * dy;
+  return Math.hypot(px - cx, py - cy);
+}
+
+/* Any radar point belongs to SOME callout: hand-drawn rings rarely tile
+   perfectly, so the slivers between regions ("gap cells") snapped here to
+   the nearest region's boundary instead of scoring 0. A tap anywhere on
+   the radar lands in a sector, and no calibrated spot is unreachable. */
+function sectorIdxAt(map, x, y) {
+  // nudge points exactly on the radar's outer edge so they still resolve
+  x = Math.min(0.9999, Math.max(0.0001, x));
+  y = Math.min(0.9999, Math.max(0.0001, y));
+  const secs = map.sectors || [];
+  for (let i = 0; i < secs.length; i++) {
+    if (pointInRing(x, y, secs[i].ring)) return i;
+  }
+  // gap-cell fallback: assign to the region whose boundary is nearest
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i < secs.length; i++) {
+    const ring = secs[i].ring;
+    for (let j = 0; j < ring.length; j++) {
+      const a = ring[j], b = ring[(j + 1) % ring.length];
+      const d = distToSeg(x, y, a[0], a[1], b[0], b[1]);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+  }
+  return secs.length ? best : -1;
+}
+
+/* Sectors are adjacent when any of their boundary samples come within
+   a small epsilon — robust even if hand-edited rings don't share exact
+   vertices. Cached on the map object per game. */
+function sectorAdjacency(map) {
+  const secs = map.sectors || [];
+  const n = secs.length;
+  const samples = secs.map(sec => {
+    const pts = [];
+    for (let i = 0; i < sec.ring.length; i++) {
+      const x1 = sec.ring[i][0], y1 = sec.ring[i][1];
+      const x2 = sec.ring[(i + 1) % sec.ring.length][0], y2 = sec.ring[(i + 1) % sec.ring.length][1];
+      for (let k = 0; k < 10; k++) pts.push([x1 + (x2 - x1) * k / 10, y1 + (y2 - y1) * k / 10]);
+    }
+    return pts;
+  });
+  const adj = Array.from({ length: n }, () => new Array(n).fill(false));
+  outer:
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      for (const a of samples[i]) {
+        for (const b of samples[j]) {
+          if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.01) {
+            adj[i][j] = adj[j][i] = true;
+            continue outer;
+          }
+        }
+      }
+    }
+  }
+  return adj;
+}
+
+function sectorDist(map, a, b) {
+  if (a === b) return 0;
+  const adj = map.__sectorAdj || (map.__sectorAdj = sectorAdjacency(map));
+  const seen = new Array(adj.length).fill(false);
+  seen[a] = true;
+  let frontier = [a], depth = 0;
+  while (frontier.length) {
+    const next = [];
+    for (const cur of frontier) {
+      for (let k = 0; k < adj[cur].length; k++) {
+        if (!adj[cur][k] || seen[k]) continue;
+        if (k === b) return depth + 1;
+        seen[k] = true;
+        next.push(k);
+      }
+    }
+    frontier = next;
+    depth++;
+  }
+  return Infinity;
+}
+
+function sectorScore(d) {
+  if (d <= 0) return POINTS_PER_ROUND;                 // bullseye sector
+  if (d === 1) return Math.round(POINTS_PER_ROUND / 2); // one sector away
+  if (d === 2) return Math.round(POINTS_PER_ROUND / 4); // two sectors away
+  return 0;                                            // 3+ sectors away
+}
+
+/* ================= screen switching ================= */
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  $(id).classList.add('active');
+  phase = id === 'round' ? 'play' : (id === 'recap' ? 'recap' : 'start');
+  $('theme-control').classList.toggle('hidden', id === 'round');
+  /* home shows the Steam backdrop; every other screen shows the map backdrop */
+  $('home-bg').classList.toggle('on', id === 'home');
+  $('map-bg').classList.toggle('on', id !== 'home');
+}
+
+/* ================= start screen ================= */
+const MIN_ROUNDS = 1;
+function renderRounds() {
+  const maxR = Math.min(20, resolvedMap(mapKey).spots.length);
+  $('rounds-val').textContent = rounds;
+  $('rounds-minus').disabled = rounds <= MIN_ROUNDS;
+  $('rounds-plus').disabled = rounds >= maxR;
+}
+function bindMapTabs() {
+  document.querySelectorAll('.map-tab:not(#mp-map-tabs .map-tab)').forEach(btn => {
+    btn.onclick = () => {
+      mapKey = btn.dataset.map;
+      document.querySelectorAll('.map-tab').forEach(b => b.classList.toggle('active', b === btn));
+      $('map-name').textContent = MAPS[mapKey].name;
+      setMapBg(mapKey);
+      renderRounds();
+    };
+  });
+}
+
+/* faint map backdrop behind the menu UI, follows the selected map */
+function setMapBg(key) {
+  const el = $('map-bg');
+  el.style.backgroundImage = 'url("' + MAPS[key].bg + '")';
+  el.classList.add('on');
+}
+$('rounds-minus').onclick = () => { rounds = Math.max(MIN_ROUNDS, rounds - 1); renderRounds(); };
+$('rounds-plus').onclick  = () => { rounds = Math.min(Math.min(20, resolvedMap(mapKey).spots.length), rounds + 1); renderRounds(); };
+$('start-game-btn').onclick = () => { show('start'); };
+$('start-btn').onclick = () => { beginGame(); };
+renderRounds();
+
+/* ---------- theme changer (top-right, menu screens) ---------- */
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('guecs_theme', t); } catch (e) {}
+  document.querySelectorAll('.swatch').forEach(b => {
+    const on = b.dataset.theme === t;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+}
+const themeMenu = $('theme-menu');
+function setThemeOpen(open) {
+  themeMenu.classList.toggle('open', open);
+  $('theme-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+$('theme-toggle').onclick = (e) => {
+  e.stopPropagation();
+  setThemeOpen(!themeMenu.classList.contains('open'));
+};
+document.addEventListener('click', (e) => {
+  if (themeMenu.classList.contains('open') && !e.target.closest('#theme-control')) setThemeOpen(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') setThemeOpen(false);
+});
+document.querySelectorAll('.swatch').forEach(b => {
+  b.onclick = (e) => {
+    e.stopPropagation();
+    applyTheme(b.dataset.theme);
+    setThemeOpen(false);
+  };
+});
+applyTheme(document.documentElement.dataset.theme || 'orange');
+
+function beginGame() {
+  gameMap = resolvedMap(mapKey);
+  idx = 0;
+  results = [];
+  selSec = -1;
+  startRound();
+}
+
+/* every round picks a fresh random spot from the map's list — that is the answer */
+function pickRandomSpot() {
+  const spots = (gameMap && gameMap.spots) || [];
+  return spots.length ? spots[Math.floor(Math.random() * spots.length)] : null;
+}
+
+/* ================= round ================= */
+const SHOT_ZOOM = 5;                       // how far we dive into the round's screenshot
+
+/* load the round's screenshot and paint a 5x random crop into the #shot canvas */
+function loadZoomShot(src, fx, fy) {
+  // fx/fy optional — multiplayer passes the host's crop so everyone sees the same window
+  const ox = (fx == null) ? 0.1 + Math.random() * 0.8 : fx;
+  const oy = (fy == null) ? 0.1 + Math.random() * 0.8 : fy;
+  const img = new Image();
+  img.onload = () => {
+    const crop = cropRect(img.naturalWidth, img.naturalHeight, 16 / 9, SHOT_ZOOM, ox, oy);
+    const up = upscaleCrop(img, crop, 1280, 720);
+    const shot = $('shot');
+    shot.width = up.width;
+    shot.height = up.height;
+    shot.getContext('2d').drawImage(up, 0, 0);
+  };
+  img.src = src;
+}
+
+/* the part of the source shown: a 16:9 window of 1/zoom of the image, centered at (ox,oy) */
+function cropRect(W, H, F, zoom, ox, oy) {
+  let cw = W / zoom, ch = cw / F;
+  if (ch > H) { ch = H / zoom; cw = ch * F; }   // tall source: keep 1/zoom on height
+  return {
+    x: Math.round(ox * (W - cw)),
+    y: Math.round(oy * (H - ch)),
+    w: Math.round(cw),
+    h: Math.round(ch),
+  };
+}
+
+/* draw the crop up to 1280x720 in smooth passes + an unsharp mask (crisper than CSS scale) */
+function upscaleCrop(img, crop, outW, outH) {
+  const midW = Math.max(2, Math.round(outW / 4));
+  const midH = Math.max(2, Math.round(outH / 4));
+  const mid = document.createElement('canvas');
+  mid.width = midW;
+  mid.height = midH;
+  const m = mid.getContext('2d');
+  m.imageSmoothingEnabled = true;
+  m.imageSmoothingQuality = 'high';
+  m.drawImage(img, crop.x, crop.y, crop.w, crop.h, 0, 0, midW, midH);
+
+  const out = document.createElement('canvas');
+  out.width = outW;
+  out.height = outH;
+  const c = out.getContext('2d');
+  c.imageSmoothingEnabled = true;
+  c.imageSmoothingQuality = 'high';
+  c.drawImage(mid, 0, 0, midW, midH, 0, 0, outW, outH);
+  unsharpMask(c, outW, outH, 1.4);
+  return out;
+}
+
+function unsharpMask(ctx, w, h, amount) {
+  if (typeof ctx.filter !== 'string') return;
+  const blur = document.createElement('canvas');
+  blur.width = w;
+  blur.height = h;
+  const b = blur.getContext('2d');
+  b.filter = 'blur(1.5px)';
+  b.drawImage(ctx.canvas, 0, 0);
+  const id = ctx.getImageData(0, 0, w, h);
+  const sd = b.getImageData(0, 0, w, h).data;
+  const d = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    for (let k = 0; k < 3; k++) {
+      const v = d[i + k], lo = sd[i + k];
+      d[i + k] = Math.max(0, Math.min(255, v + (v - lo) * amount));
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+}
+
+/* ================= round ================= */
+function startRound() {
+  currentLoc = pickRandomSpot();
+  const loc = currentLoc;
+  loadZoomShot('assets/images/' + loc.img);
+  $('radar-img').src = gameMap.radar;
+  $('radar-img').alt = gameMap.name + ' minimap';
+  $('round-num').textContent = 'Round ' + (idx + 1);
+  $('mp-answered').style.display = 'none';
+  selSec = -1;
+  locked = false;
+  $('map-btn').classList.add('hidden');
+  $('sheet').classList.remove('open');
+  $('score-pop').classList.remove('show');
+  $('pin-hint').style.display = 'block';
+  resetCalloutSearch();
+  $('shot').classList.remove('revealed');
+  clearRadarSvg();
+  clearInterval(timer);
+  timerLeft = ROUND_SECONDS;
+  renderTimer();
+  show('round');
+  runCountdown();
+}
+
+/* 3 … 2 … 1 before each round — holds the clock and the Map button */
+function runCountdown() {
+  countingDown = true;
+  let n = 3;
+  const cd = $('countdown'), num = $('cd-num');
+  cd.classList.remove('hidden');
+  const flash = () => {
+    num.textContent = n;
+    num.classList.remove('pop');
+    void num.offsetWidth;          // restart the pop animation
+    num.classList.add('pop');
+  };
+  flash();
+  setTimeout(() => { n = 2; flash();
+    setTimeout(() => { n = 1; flash();
+      setTimeout(() => {
+        cd.classList.add('hidden');
+        num.classList.remove('pop');
+        countingDown = false;
+        beginTimer();
+      }, 667);
+    }, 667);
+  }, 667);
+}
+
+function beginTimer() {
+  $('map-btn').classList.remove('hidden');
+  $('shot').classList.add('revealed');
+  $('timer-wrap').classList.remove('hidden');
+  timer = setInterval(() => {
+    timerLeft--;
+    renderTimer();
+    if (timerLeft <= 0) onTimerEnd();
+  }, 1000);
+}
+
+function renderTimer() {
+  const pct = Math.min(100, (timerLeft / ROUND_SECONDS) * 100);
+  $('timer-bar').style.width = pct + '%';
+  $('timer-bar').classList.toggle('low', timerLeft <= 10);
+  $('timer-text').textContent = timerLeft;
+}
+
+function onTimerEnd() {
+  clearInterval(timer);
+  if (MP.active) { mpTimeUp(); return; }
+  lockIn();      // 0 pts, but still reveal the answer
+}
+
+/* ================= map / callout ================= */
+$('map-btn').onclick = () => {
+  $('sheet').classList.add('open');
+  // show the callout regions so the player can tap one to lock in
+  if (gameMap && gameMap.sectors && gameMap.sectors.length) drawPick();
+};
+
+$('close-sheet').onclick = () => {
+  if (!locked) $('sheet').classList.remove('open');
+};
+
+function radarCoordsFromEvent(ev) {
+  const box = $('radar-box');
+  const rect = box.getBoundingClientRect();
+  const imgRect = $('radar').firstElementChild.getBoundingClientRect();
+  const x = (ev.clientX - imgRect.left) / imgRect.width;
+  const y = (ev.clientY - imgRect.top) / imgRect.height;
+  return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
+}
+
+function onRadarTap(ev) {
+  if (locked || countingDown || phase !== 'play') return;
+  const p = radarCoordsFromEvent(ev);
+  if (!gameMap.sectors || !gameMap.sectors.length) return;
+  const i = sectorIdxAt(gameMap, p.x, p.y);
+  if (i >= 0) commitCallout(i);
+}
+
+/* picking a callout IS the guess — one tap locks the round in instantly */
+function commitCallout(i) {
+  if (locked || countingDown || phase !== 'play') return;
+  if (MP.active) { selSec = i; mpSendGuess(i); return; }
+  selSec = i;
+  $('pin-hint').style.display = 'none';
+  lockIn();
+}
+
+$('radar-box').addEventListener('pointerdown', onRadarTap);
+
+/* callout search under the radar — type to narrow, pick a result to lock in */
+function setupCalloutSearch() {
+  const input = $('callout-search');
+  input.oninput = () => { if (!locked) renderCalloutSearch(); };
+  input.onkeydown = (ev) => {
+    if (ev.key !== 'Enter') return;
+    const first = $('callout-results').firstElementChild;
+    if (first && first.dataset.idx !== undefined) commitCallout(+first.dataset.idx);
+  };
+}
+function renderCalloutSearch() {
+  const results = $('callout-results');
+  const q = $('callout-search').value.trim().toLowerCase();
+  results.innerHTML = '';
+  if (!q) return;                                   // nothing typed yet — no list shown
+  const secs = (gameMap && gameMap.sectors) || [];
+  const hits = secs.map((s, i) => ({ s, i }))
+                   .filter(({ s }) => s.name.toLowerCase().includes(q))
+                   .slice(0, 8);
+  for (const { s, i } of hits) {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.dataset.idx = i;
+    b.textContent = s.name;
+    b.onclick = () => commitCallout(i);
+    results.appendChild(b);
+  }
+  if (!hits.length) {
+    const none = document.createElement('div');
+    none.className = 'search-none';
+    none.textContent = 'No callout matches "' + q + '"';
+    results.appendChild(none);
+  }
+}
+function resetCalloutSearch() {
+  $('callout-search').value = '';
+  $('callout-results').innerHTML = '';
+}
+setupCalloutSearch();
+
+/* ---------- reveal ---------- */
+function lockIn() {
+  if (locked || countingDown) return;
+  locked = true;
+  clearInterval(timer);
+  $('timer-wrap').classList.add('hidden');
+
+  const loc = currentLoc;
+  const secs = (gameMap.sectors && gameMap.sectors.length) ? gameMap.sectors : null;
+  const guessSec = (secs && selSec >= 0) ? selSec : -1;
+  const trueSec = secs ? sectorIdxAt(gameMap, loc.x, loc.y) : -1;
+  let sd = -1, score = 0;
+  if (guessSec >= 0 && trueSec >= 0) {
+    sd = sectorDist(gameMap, guessSec, trueSec);
+    score = sectorScore(sd);
+  }
+  results.push({ loc: loc.name, score, guessSec, trueSec, sd });
+
+  // ensure radar is up so the player sees the reveal
+  $('sheet').classList.add('open');
+  drawReveal(loc, guessSec, trueSec);
+
+  let detail;
+  if (guessSec < 0) {
+    detail = 'No callout picked — 0 points';
+  } else if (trueSec < 0) {
+    detail = 'Answer is outside the callouts — 0 points';
+  } else if (guessSec === trueSec) {
+    detail = 'Spot on — ' + secs[trueSec].name + '!';
+  } else {
+    detail = secs[guessSec].name + ' → ' + secs[trueSec].name + ' · ' + sd +
+             (sd === 1 ? ' sector' : ' sectors') + ' away';
+  }
+  $('score-val').textContent = score;
+  $('score-val').style.color = score >= POINTS_PER_ROUND ? 'var(--good)' : (score === 0 ? 'var(--bad)' : 'var(--accent)');
+  $('score-detail').textContent = detail;
+  $('score-pop').classList.add('show');
+
+  setTimeout(() => {
+    $('score-pop').classList.remove('show');
+    $('sheet').classList.remove('open');
+    idx++;
+    if (idx < rounds) startRound();
+    else showRecap();
+  }, REVEAL_SECONDS * 1000);
+}
+
+function clearRadarSvg() { $('radar-svg').innerHTML = ''; }
+
+/* pick-phase radar: callout regions shown — tap one to lock the round in */
+function drawPick() {
+  const svg = $('radar-svg');
+  svg.innerHTML = '';
+  const g = svgNS('g');
+  const secs = (gameMap && gameMap.sectors) || [];
+  for (let i = 0; i < secs.length; i++) {
+    const p = polygonEl(secs[i].ring, 'var(--accent)');
+    p.classList.add('sec');
+    p.style.setProperty('--dot', 'var(--accent)');
+    g.appendChild(p);
+  }
+  // tiny region names — enough to read, small enough not to cover the map
+  for (let i = 0; i < secs.length; i++) {
+    const c = sectorCentroid(secs[i]);
+    label(g, c.x * 1000, c.y * 1000, secs[i].name, 'var(--muted)', 18);
+  }
+  svg.appendChild(g);
+}
+
+function drawReveal(loc, guessSec, trueSec) {
+  const svg = $('radar-svg');
+  svg.innerHTML = '';
+  const g = svgNS('g');
+  // sector highlights: true region (good) + guessed region (accent)
+  if (gameMap.sectors && gameMap.sectors.length) {
+    drawSectorLayer(g, { trueIdx: trueSec, guessIdx: guessSec });
+  }
+  svg.appendChild(g);
+}
+
+/* -------- sector helpers (no labels — names live in the search bar) -------- */
+function polygonEl(ring, fill, stroke, sw, opacity) {
+  const p = svgNS('polygon');
+  p.setAttribute('points', ring.map(pt => (pt[0] * 1000).toFixed(2) + ',' + (pt[1] * 1000).toFixed(2)).join(' '));
+  p.setAttribute('stroke-linejoin', 'round');
+  p.setAttribute('stroke-linecap', 'round');
+  if (fill) { p.style.fill = fill; p.style.opacity = (opacity == null ? 1 : opacity); }
+  if (stroke) p.setAttribute('stroke', stroke);
+  if (sw) p.setAttribute('stroke-width', sw);
+  return p;
+}
+
+function drawSectorLayer(g, o) {
+  const secs = (gameMap && gameMap.sectors) || [];
+  if (!secs.length) return;
+  for (let i = 0; i < secs.length; i++) {
+    const isTrue = o.trueIdx === i, isGuess = o.guessIdx === i;
+    const fill = isTrue ? 'var(--good)' : (isGuess ? 'var(--accent)' : null);
+    const p = polygonEl(secs[i].ring, fill);
+    p.classList.add('sec');
+    p.style.setProperty('--dot', isTrue ? 'var(--good)' : 'var(--accent)');
+    if (fill) p.style.fillOpacity = isTrue ? '0.18' : '0.15';
+    g.appendChild(p);
+  }
+  // small names for the revealed regions only
+  if (o.trueIdx >= 0) {
+    const c = sectorCentroid(secs[o.trueIdx]);
+    label(g, c.x * 1000, c.y * 1000, secs[o.trueIdx].name, 'var(--good)', 20);
+  }
+  if (o.guessIdx >= 0 && o.guessIdx !== o.trueIdx) {
+    const c = sectorCentroid(secs[o.guessIdx]);
+    label(g, c.x * 1000, c.y * 1000, secs[o.guessIdx].name, 'var(--accent)', 20);
+  }
+}
+
+function sectorCentroid(sec) {
+  let sx = 0, sy = 0;
+  for (const pt of sec.ring) { sx += pt[0]; sy += pt[1]; }
+  return { x: sx / sec.ring.length, y: sy / sec.ring.length };
+}
+
+function label(g, x, y, text, color, size) {
+  const t = svgNS('text');
+  t.setAttribute('x', x); t.setAttribute('y', y);
+  t.style.fill = color || 'var(--text)';
+  t.setAttribute('font-size', size || 13);
+  t.setAttribute('font-weight', '700');
+  t.setAttribute('stroke', '#0d1117'); t.setAttribute('stroke-width', '3'); t.setAttribute('paint-order', 'stroke');
+  const tn = document.createTextNode(text);
+  t.appendChild(tn);
+  g.appendChild(t);
+}
+
+function svgNS(tag) { return document.createElementNS('http://www.w3.org/2000/svg', tag); }
+
+/* ================= recap ================= */
+function showRecap() {
+  const map = gameMap || resolvedMap(mapKey);
+  const total = results.reduce((s, r) => s + r.score, 0);
+  $('recap-sub').textContent = map.name + ' · ' + results.length + ' rounds';
+  $('recap-radar-img').src = map.radar;
+  $('recap-radar-img').alt = map.name + ' minimap';
+  $('recap-total').innerHTML = total + ' <span style="font-size:20px;color:var(--muted)">/ ' + (results.length * 100) + '</span>';
+
+  const grid = $('recap-rounds');
+  grid.innerHTML = '';
+  grid.style.display = 'grid';
+  results.forEach((r, i) => {
+    const el = document.createElement('div');
+    el.className = 'recap-round';
+    const name = document.createElement('div');
+    name.className = 'r-name';
+    name.textContent = (i + 1) + '. ' + r.loc;
+    const sc = document.createElement('div');
+    sc.className = 'r-score' + (r.score === 0 ? ' zero' : '');
+    sc.textContent = r.score;
+    el.appendChild(name); el.appendChild(sc);
+    if (map.sectors && map.sectors.length && r.trueSec >= 0 && r.guessSec >= 0) {
+      const sub = document.createElement('div');
+      sub.className = 'r-sub';
+      const th = map.sectors[r.trueSec].name;
+      sub.textContent = r.guessSec === r.trueSec
+        ? th + ' ✓'
+        : map.sectors[r.guessSec].name + ' → ' + th + ' (' + r.sd + (r.sd === 1 ? ' off)' : ' off)');
+      el.appendChild(sub);
+    }
+    grid.appendChild(el);
+  });
+
+  // recap radar: callout regions + true-sector tints (green) + guessed tints (accent)
+  const svg = $('recap-svg');
+  svg.innerHTML = '';
+  const g = svgNS('g');
+  if (map.sectors && map.sectors.length) {
+    for (const sec of map.sectors) {
+      const p = polygonEl(sec.ring, 'var(--accent)');
+      p.classList.add('sec');
+      p.style.setProperty('--dot', 'var(--accent)');
+      g.appendChild(p);
+    }
+    for (const r of results) {
+      if (r.trueSec >= 0) {
+        const t = polygonEl(map.sectors[r.trueSec].ring, 'var(--good)');
+        t.classList.add('sec');
+        t.style.setProperty('--dot', 'var(--good)');
+        t.style.fillOpacity = '0.14';
+        g.appendChild(t);
+      }
+    }
+  }
+  for (const r of results) {
+    if (r.guessSec >= 0 && r.guessSec !== r.trueSec) {
+      const gs = polygonEl(map.sectors[r.guessSec].ring, 'var(--accent)');
+      gs.classList.add('sec');
+      gs.style.setProperty('--dot', 'var(--accent)');
+      gs.style.fillOpacity = '0.12';
+      g.appendChild(gs);
+    }
+  }
+  svg.appendChild(g);
+
+  show('recap');
+}
+
+$('again-btn').onclick = () => { show('start'); renderRounds(); };
+
+/* ================= MULTIPLAYER (Firebase RTDB) =================
+   Rooms live at `guecs_rooms/<CODE>/`. The host is authoritative:
+   it picks the spot + crop each round and writes `current`; everyone
+   else renders it, sends their guess, and shows the reveal.
+
+   SETUP (once, free): console.firebase.google.com → Add project →
+   Build → Realtime Database → Create database (Start in test mode is
+   fine for friends) → click the </> web icon → copy the config into
+   FIREBASE_CONFIG below (or paste the whole object into localStorage
+   under 'guecs_firebase' — that wins).
+   Namespace for all rooms is /guecs_rooms. */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAcrJKSPtfhQGMyrRwhZnSDpqnv6Whs6UE",
+  authDomain: "guecs-multiplayer.firebaseapp.com",
+  databaseURL: "https://guecs-multiplayer-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "guecs-multiplayer",
+  storageBucket: "guecs-multiplayer.firebasestorage.app",
+  messagingSenderId: "516883645068",
+  appId: "1:516883645068:web:d059b0d4513203bc9871a9",
+  measurementId: "G-0230Z1FQW0",
+};
+
+function mpConfig() {
+  try {
+    const raw = localStorage.getItem('guecs_firebase');
+    if (raw) { const o = JSON.parse(raw); if (o && o.databaseURL) return o; }
+  } catch (e) {}
+  return FIREBASE_CONFIG;
+}
+function mpHasFb() {
+  return !!(window.firebase && window.firebase.database &&
+    mpConfig().databaseURL && mpConfig().databaseURL.indexOf('YOUR_PROJECT') === -1);
+}
+let mpFbInit = false;
+function mpDb() {
+  if (!mpFbInit) { mpFbInit = true; firebase.initializeApp(mpConfig()); }
+  return firebase.database();
+}
+
+const MP = {
+  active: false, code: null, uid: null, name: null, color: null,
+  host: null,             // uid of the host
+  mapKey: 'dust2',
+  roundsTotal: 5,
+  gone: null,             // unsubscribe fn
+  currentRound: null,     // last handled current for this client
+  mpMap: null,            // built-in (uncalibrated) map object for MP consistency
+  hostAdvancing: false,   // host guard: reveal→next round already scheduled
+};
+const MP_COLORS = ['#f0a519', '#a371f7', '#3fb950', '#22d3ee', '#ff5a47', '#f2f4f8', '#ff8c42', '#7adddd'];
+const MP_ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function mpUid() { return (Math.random().toString(36).slice(2, 10)); }
+function mpGenCode() {
+  let c = '';
+  for (let i = 0; i < 4; i++) c += MP_ALPHA[Math.floor(Math.random() * MP_ALPHA.length)];
+  return c;
+}
+/* the map as everyone should see it in MP: the HOST's resolved data
+   (calibrated spots + sectors.html overrides) is broadcast with the
+   room, so MP regions match the host's single-player regions exactly. */
+function mpRoomMap(room) {
+  const base = MAPS[room.map || MP.mapKey] || MAPS['dust2'];
+  return Object.assign({}, base, {
+    locations: (room.spots && room.spots.length) ? room.spots : (base.locations || []),
+    sectors:   (room.sectors && room.sectors.length) ? room.sectors : (base.sectors || []),
+  });
+}
+function mpErr(msg) { $('mp-err').textContent = msg; $('mp-err2').textContent = '';
+  if (msg) setTimeout(() => { if ($('mp-err').textContent === msg) $('mp-err').textContent = ''; }, 3000);
+}
+function mpNameInput() {
+  const v = ($('mp-name').value || '').trim();
+  return (v.length >= 1 && v.length <= 12) ? v : null;
+}
+
+function mpCreateRoom() {
+  mpErr('');
+  const name = mpNameInput();
+  if (!name) { mpErr('Pick a nickname (1-12 chars).'); return; }
+  if (!mpHasFb()) { mpErr('Firebase is not configured — see the comment above FIREBASE_CONFIG.'); return; }
+  let code = mpGenCode();
+  const db = mpDb();
+  // find a free 4-char code
+  const claim = (c, tries) => {
+    return db.ref('guecs_rooms/' + c).once('value').then(snap => {
+      if (!snap.exists()) {
+        MP.uid = mpUid(); MP.code = c; MP.host = MP.uid; MP.active = true;
+        MP.name = name; MP.color = MP_COLORS[0]; MP.mapKey = mapKey; MP.roundsTotal = rounds;
+        return db.ref('guecs_rooms/' + c).set({
+          host: MP.uid, status: 'lobby', map: mapKey, roundsTotal: rounds,
+          spots: resolvedMap(mapKey).spots,
+          sectors: resolvedMap(mapKey).sectors,
+          created: firebase.database.ServerValue.TIMESTAMP,
+        }).then(() => {
+          return db.ref('guecs_rooms/' + c + '/players/' + MP.uid).set({
+            name, color: MP.color, score: 0,
+          });
+        }).then(() => mpJoinRoomUI(c));
+      }
+      if (tries > 4) return mpErr('Could not create a room — try again.');
+      return claim(mpGenCode(), tries + 1);
+    });
+  };
+  claim(code, 0);
+}
+function mpJoinRoom() {
+  mpErr('');
+  const name = mpNameInput();
+  if (!name) { mpErr('Pick a nickname (1-12 chars).'); return; }
+  if (!mpHasFb()) { mpErr('Firebase is not configured — see the comment above FIREBASE_CONFIG.'); return; }
+  const code = ($('mp-code').value || '').trim().toUpperCase();
+  if (!code) { mpErr('Enter the 4-letter room code.'); return; }
+  const db = mpDb();
+  db.ref('guecs_rooms/' + code).once('value').then(snap => {
+    const room = snap.val();
+    if (!room) { mpErr('No room with that code.'); return; }
+    if (room.status && room.status !== 'lobby') { mpErr('That match already started.'); return; }
+    if (Object.keys(room.players || {}).length >= 8) { mpErr('That room is full (8 max).'); return; }
+    MP.uid = mpUid(); MP.code = code; MP.host = room.host; MP.active = true;
+    MP.name = name; MP.mapKey = room.map || 'dust2'; MP.roundsTotal = room.roundsTotal || 5;
+    // first free palette slot
+    const taken = Object.keys(room.players || {}).map(k => room.players[k].color);
+    MP.color = MP_COLORS.find(c => taken.indexOf(c) === -1) || MP_COLORS[taken.length % MP_COLORS.length];
+    return db.ref('guecs_rooms/' + code + '/players/' + MP.uid).set({
+      name, color: MP.color, score: 0,
+    }).then(() => mpJoinRoomUI(code));
+  }).catch(() => mpErr('Could not reach the match server.'));
+}
+
+/* shared: show the join screen (MP.active set, start listening) */
+function mpJoinRoomUI(code) {
+  $('mp-join').classList.add('hidden');
+  $('mp-lobby').classList.remove('hidden');
+  $('mp-code-display').textContent = code;
+  $('mp-err2').textContent = '';
+  show('mp');
+  MP.gone = mpDb().ref('guecs_rooms/' + code).on('value', snap => mpOnRoom(snap.val()));
+}
+function mpOnRoom(room) {
+  if (!room) {
+    // host deleted the room (left) — back to the join screen with a notice
+    mpLeave(true);
+    $('mp-join').classList.remove('hidden');
+    $('mp-lobby').classList.add('hidden');
+    show('mp');
+    mpErr('The room was closed by its host.');
+    return;
+  }
+  MP.host = room.host;
+  MP.mapKey = room.map || MP.mapKey;
+  MP.roundsTotal = room.roundsTotal || MP.roundsTotal;
+  // keep mpMap in sync so sectors/search just work — from the HOST's data
+  MP.mpMap = mpRoomMap(room);
+  MP.playerCount = Object.keys(room.players || {}).length;
+  if (room.status === 'playing') {
+    mpHandleCurrent(room);
+  } else if (room.status === 'lobby') {
+    mpRenderLobby(room);
+  } else if (room.status === 'finished') {
+    mpRenderEnd(room);
+  }
+}
+
+/* ---------- lobby ---------- */
+function mpRenderLobby(room) {
+  const players = room.players || {};
+  const list = Object.keys(players).map(k => ({ uid: k, ...players[k] }));
+  $('mp-player-count').textContent = list.length + '/' + 8;
+  const box = $('mp-players');
+  box.innerHTML = '';
+  list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  for (const p of list) {
+    const chip = document.createElement('div');
+    chip.className = 'player-chip' + (p.uid === MP.uid ? ' me' : '');
+    const dot = document.createElement('span');
+    dot.className = 'player-dot'; dot.style.color = p.color; dot.style.background = p.color;
+    chip.appendChild(dot);
+    const nm = document.createElement('span');
+    nm.textContent = p.name + (p.uid === MP.host ? ' (host)' : '');
+    chip.appendChild(nm);
+    box.appendChild(chip);
+  }
+  const isHost = MP.uid === MP.host;
+  $('mp-host-cfg').style.display = isHost ? 'flex' : 'none';
+  $('mp-host-cfg2').style.display = isHost ? 'flex' : 'none';
+  $('mp-start-btn').style.display = isHost ? '' : 'none';
+  $('mp-start-btn').disabled = isHost ? list.length < 1 : true;
+  if (isHost && list.length >= 8) $('mp-start-btn').disabled = true;
+  $('mp-rounds-val').textContent = MP.roundsTotal;
+  $('mp-lobby-sub').textContent = MAPS[MP.mapKey].name + ' · ' + MP.roundsTotal +
+    (MP.roundsTotal === 1 ? ' round' : ' rounds') + (isHost ? ' — you host' : '');
+  // host map tabs
+  document.querySelectorAll('#mp-map-tabs .map-tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.map === MP.mapKey);
+  });
+}
+
+/* ---------- round driving ---------- */
+function mpHandleCurrent(room) {
+  const cur = room.current;
+  if (!cur) return;
+  const key = cur.startedAt;
+  if (key !== MP.currentRound) {
+    MP.currentRound = key;
+    mpShowRound(room, cur);
+  }
+  if (cur.phase === 'reveal') {
+    mpShowReveal(room, cur);
+  } else {
+    mpUpdateAnswered(room, cur);
+    if (MP.uid === MP.host) mpHostCheck(cur);
+  }
+}
+function mpShowRound(room, cur) {
+  const map = MP.mpMap;
+  const spots = map.locations || [];
+  const loc = spots[cur.spotIdx] || spots[0];
+  currentLoc = loc;              // shared with reveal/scoring helpers
+  gameMap = map;
+  loadZoomShot('assets/images/' + loc.img, cur.ox, cur.oy);
+  $('radar-img').src = map.radar;
+  $('radar-img').alt = map.name + ' minimap';
+  $('round-num').textContent = 'Round ' + (room.round || 1);
+  $('mp-answered').style.display = '';
+  selSec = -1; locked = false;
+  $('map-btn').classList.add('hidden');
+  $('sheet').classList.remove('open');
+  $('score-pop').classList.remove('show');
+  $('mp-round-results').style.display = 'none';
+  $('pin-hint').textContent = 'Type a callout to lock it in — or tap the map';
+  $('pin-hint').style.display = 'block';
+  $('pin-hint').style.color = '';
+  $('callout-pick').classList.remove('hidden');
+  $('mp-wait').classList.add('hidden');
+  resetCalloutSearch();
+  $('shot').classList.remove('revealed');
+  clearRadarSvg();
+  clearInterval(timer);
+  show('round');
+  mpCountdown(cur);
+}
+/* 3…2…1 then count down to the host's timeoutAt */
+function mpCountdown(cur) {
+  countingDown = true;
+  let n = 3;
+  const cd = $('countdown'), num = $('cd-num');
+  cd.classList.remove('hidden');
+  const flash = () => { num.textContent = n; num.classList.remove('pop'); void num.offsetWidth; num.classList.add('pop'); };
+  flash();
+  setTimeout(() => { n = 2; flash();
+    setTimeout(() => { n = 1; flash();
+      setTimeout(() => {
+        cd.classList.add('hidden');
+        num.classList.remove('pop');
+        countingDown = false;
+        mpBeginTimer(cur);
+      }, 667); }, 667); }, 667);
+}
+function mpBeginTimer(cur) {
+  $('map-btn').classList.remove('hidden');
+  $('shot').classList.add('revealed');
+  $('timer-wrap').classList.remove('hidden');
+  clearInterval(timer);
+  timer = setInterval(() => {
+    const left = cur.timeoutAt - Date.now();
+    if (left <= 0) { mpTimeUp(); return; }
+    timerLeft = Math.ceil(left / 1000);
+    renderTimer();
+  }, 250);
+  timerLeft = Math.ceil((cur.timeoutAt - Date.now()) / 1000);
+  renderTimer();
+}
+/* my guess: write to the room, then show the waiting screen (radar stays
+   up with the picked region glowing so you can see your call) */
+function mpSendGuess(sec) {
+  if (locked || countingDown || MP.active !== true) return;
+  locked = true;
+  clearInterval(timer);
+  mpDb().ref('guecs_rooms/' + MP.code + '/current/guesses/' + MP.uid).set(sec);
+  mpShowWaiting(sec);
+}
+function mpTimeUp() {
+  clearInterval(timer);
+  if (!locked) {
+    locked = true;
+    mpDb().ref('guecs_rooms/' + MP.code + '/current/guesses/' + MP.uid).set(-1);
+    mpShowWaiting(-1);
+  }
+}
+/* waiting screen: replace the search with the live counter, and redraw the
+   radar so only the locked-in region glows (var(--sel)) */
+function mpShowWaiting(sec) {
+  $('sheet').classList.add('open');
+  $('callout-pick').classList.add('hidden');
+  $('mp-wait').classList.remove('hidden');
+  const secs = (gameMap && gameMap.sectors) || [];
+  const name = (sec >= 0 && secs[sec]) ? secs[sec].name : null;
+  $('mp-wait-title').textContent = 'Waiting for the other players…';
+  $('mp-wait-sub').textContent = name
+    ? 'You locked in: ' + name
+    : 'Time’s up — no callout, 0 points';
+  $('pin-hint').textContent = name ? 'Locked in — ' + name : 'Time’s up — missed this one.';
+  $('pin-hint').style.color = 'var(--sel)';
+  $('mp-wait-count').textContent = '1/' + (MP.playerCount || 1) + ' answered';
+  const svg = $('radar-svg');
+  svg.innerHTML = '';
+  const g = svgNS('g');
+  for (let i = 0; i < secs.length; i++) {
+    const p = polygonEl(secs[i].ring, 'var(--accent)');
+    p.classList.add('sec');
+    const mine = (sec >= 0 && i === sec);
+    p.style.setProperty('--dot', mine ? 'var(--sel)' : 'var(--accent)');
+    if (mine) {
+      p.classList.add('sel');
+    } else {
+      p.style.fillOpacity = '0.03';
+      p.style.pointerEvents = 'none';
+    }
+    g.appendChild(p);
+  }
+  svg.appendChild(g);
+}
+function mpUpdateAnswered(room, cur) {
+  const g = cur.guesses || {};
+  const n = Object.keys(g).length;
+  const total = Object.keys(room.players || {}).length;
+  const txt = n + '/' + total + ' answered';
+  $('mp-answered').textContent = txt;
+  if (!$('mp-wait').classList.contains('hidden')) $('mp-wait-count').textContent = txt;
+}
+
+/* ---------- host: decide when to reveal ---------- */
+function mpHostCheck(cur) {
+  if (MP.hostAdvancing) return;
+  MP.hostAdvancing = true;   // synchronous guard — reveal is being considered
+  mpDb().ref('guecs_rooms/' + MP.code).once('value').then(snap => {
+    const room = snap.val();
+    if (!room || !room.current || room.current.phase === 'reveal') return;
+    const c = room.current;
+    const players = room.players || {};
+    const ids = Object.keys(players);
+    const g = c.guesses || {};
+    const allIn = ids.length > 0 && ids.every(id => g[id] !== undefined);
+    const timed = Date.now() >= c.timeoutAt;
+    if (!(allIn || timed)) { MP.hostAdvancing = false; return; }
+    const map = mpRoomMap(room);
+      const loc = (map.locations || [])[c.spotIdx];
+      const trueSec = sectorIdxAt(map, loc.x, loc.y);
+      const results = {};
+      const upd = {
+        'current/phase': 'reveal',
+        'current/trueSec': trueSec,
+        'current/results': results,
+      };
+      for (const id of ids) {
+        const sec = g[id] === undefined ? -1 : g[id];
+        let sd = -1, pts = 0;
+        if (sec >= 0 && trueSec >= 0) { sd = sectorDist(map, sec, trueSec); pts = sectorScore(sd); }
+        results[id] = { sec, sd, score: pts };
+        upd['players/' + id + '/score'] = firebase.database.ServerValue.increment(pts);
+      }
+      mpDb().ref('guecs_rooms/' + MP.code).update(upd);
+      // advance after the reveal window
+      setTimeout(() => mpHostNext(), (REVEAL_SECONDS + 2) * 1000);
+  });
+}
+function mpHostNext() {
+  const db = mpDb();
+  db.ref('guecs_rooms/' + MP.code).once('value').then(snap => {
+    const room = snap.val();
+    if (!room || room.status !== 'playing') return;
+    const round = (room.round || 1) + 1;
+    if (round > room.roundsTotal) {
+      MP.hostAdvancing = false;
+      db.ref('guecs_rooms/' + MP.code).update({ status: 'finished' });
+      return;
+    }
+    const map = mpRoomMap(room);
+    const spots = (map.locations || []);
+    const spotIdx = Math.floor(Math.random() * spots.length);
+    const cur = {
+      round,
+      startedAt: Date.now(),
+      timeoutAt: Date.now() + 2000 + ROUND_SECONDS * 1000,   // ~2s countdown, then play
+      spotIdx,
+      ox: +(0.1 + Math.random() * 0.8).toFixed(3),
+      oy: +(0.1 + Math.random() * 0.8).toFixed(3),
+      phase: 'play',
+      guesses: {},
+      results: {},
+      trueSec: -1,
+    };
+    MP.hostAdvancing = false;
+    db.ref('guecs_rooms/' + MP.code).update({ round, status: 'playing', current: cur });
+  });
+}
+
+/* ---------- reveal + end ---------- */
+function mpShowReveal(room, cur) {
+  clearInterval(timer);
+  $('timer-wrap').classList.add('hidden');
+  $('pin-hint').textContent = 'Round ' + (cur.round || '') + ' result — everyone’s callout'
+  $('mp-answered').style.display = 'none';
+  $('callout-pick').classList.add('hidden');
+  $('mp-wait').classList.add('hidden');
+  $('pin-hint').style.color = '';
+  const map = MP.mpMap;
+  const secs = map.sectors || [];
+  const trueSec = cur.trueSec;
+  const results = cur.results || {};
+  // radar: true sector + each player's guess tinted their color
+  const svg = $('radar-svg');
+  svg.innerHTML = '';
+  const gg = svgNS('g');
+  if (secs.length) {
+    for (const id of Object.keys(results)) {
+      const r = results[id];
+      if (r.sec >= 0 && r.sec < secs.length) {
+        const p = polygonEl(secs[r.sec].ring, room.players[id] ? room.players[id].color : 'var(--accent)');
+        p.classList.add('sec');
+        p.style.fillOpacity = '0.22';
+        gg.appendChild(p);
+      }
+    }
+    if (trueSec >= 0) {
+      const t = polygonEl(secs[trueSec].ring, 'var(--good)');
+      t.classList.add('sec');
+      t.style.setProperty('--dot', 'var(--good)');
+      t.style.fillOpacity = '0.30';
+      gg.appendChild(t);
+    }
+  }
+  svg.appendChild(gg);
+  $('sheet').classList.add('open');
+
+  // my result in the popup
+  const mine = results[MP.uid];
+  const mySec = mine ? mine.sec : -1;
+  const pts = mine ? mine.score : 0;
+  $('score-val').textContent = pts;
+  $('score-val').style.color = pts >= POINTS_PER_ROUND ? 'var(--good)' : (pts === 0 ? 'var(--bad)' : 'var(--accent)');
+  let detail;
+  if (mySec < 0) detail = 'You didn’t call it — 0 points';
+  else if (trueSec < 0) detail = 'Answer is outside the callouts';
+  else if (mySec === trueSec) detail = 'Spot on — ' + secs[trueSec].name + '!';
+  else detail = 'You said ' + secs[mySec].name + ' → ' + secs[trueSec].name +
+                ' · ' + mine.sd + (mine.sd === 1 ? ' sector' : ' sectors') + ' away';
+  $('score-detail').textContent = detail;
+  $('score-pop').classList.add('show');
+
+  // everyone's result list
+  const list = $('mp-round-results');
+  list.innerHTML = '';
+  const rows = Object.keys(results).map(id => {
+    const r = results[id];
+    const whom = (room.players[id] && room.players[id].name) || '???';
+    const secName = (r.sec >= 0 && secs[r.sec]) ? secs[r.sec].name : '—';
+    return { id, whom, r, secName };
+  });
+  rows.sort((a, b) => b.r.score - a.r.score || a.whom.localeCompare(b.whom));
+  for (const row of rows) {
+    const el = document.createElement('div');
+    el.className = 'mp-row';
+    const l = document.createElement('span');
+    l.innerHTML = '<span class="player-dot" style="color:' + (room.players[row.id] || {}).color + ';background:' +
+      (room.players[row.id] || {}).color + ';display:inline-block;margin-right:6px"></span>' +
+      row.whom + ': <b>' + row.secName + '</b>';
+    const pts2 = document.createElement('span');
+    pts2.textContent = (row.r.sec < 0 ? 'missed' : '+' + row.r.score);
+    pts2.style.fontWeight = '700';
+    pts2.style.color = row.r.score >= POINTS_PER_ROUND ? 'var(--good)' : (row.r.score === 0 ? 'var(--bad)' : 'var(--accent)');
+    el.appendChild(l); el.appendChild(pts2);
+    list.appendChild(el);
+  }
+  list.style.display = 'block';
+}
+function mpRenderEnd(room) {
+  const players = Object.keys(room.players || {}).map(k => ({ uid: k, ...room.players[k] }));
+  players.sort((a, b) => (b.score || 0) - (a.score || 0));
+  $('mp-end-title').textContent = players[0] ? players[0].name + ' wins!' : 'Final scores';
+  $('mp-end-sub').textContent = MAPS[MP.mapKey].name + ' · ' + (room.roundsTotal || 0) + ' rounds';
+  const box = $('mp-standings');
+  box.innerHTML = '';
+  players.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'stand-row' + (i === 0 ? ' first' : '');
+    const rank = document.createElement('div');
+    rank.className = 'stand-rank'; rank.textContent = i + 1;
+    const dot = document.createElement('span');
+    dot.className = 'player-dot'; dot.style.color = p.color; dot.style.background = p.color;
+    const nm = document.createElement('div');
+    nm.className = 'stand-name'; nm.appendChild(dot); nm.appendChild(document.createTextNode(' ' + p.name));
+    const sc = document.createElement('div');
+    sc.className = 'stand-score'; sc.textContent = p.score;
+    row.appendChild(rank); row.appendChild(nm); row.appendChild(sc);
+    box.appendChild(row);
+  });
+  show('mp-end');
+}
+
+/* ---------- leave / cleanup ---------- */
+function mpLeave(silent) {
+  clearInterval(timer);           // in case we were mid-round
+  if (MP.active && MP.code) {
+    const db = mpDb();
+    try {
+      if (MP.gone) db.ref('guecs_rooms/' + MP.code).off('value', MP.gone);
+      if (MP.uid === MP.host) {
+        db.ref('guecs_rooms/' + MP.code).remove();
+      } else {
+        db.ref('guecs_rooms/' + MP.code + '/players/' + MP.uid).remove();
+      }
+    } catch (e) {}
+    MP.active = false; MP.code = null; MP.host = null; MP.gone = null;
+    MP.currentRound = null; MP.mpMap = null; MP.hostAdvancing = false; MP.playerCount = 0;
+    $('callout-pick').classList.remove('hidden');
+    $('mp-wait').classList.add('hidden');
+  }
+  if (!silent) {
+    $('mp-answered').style.display = 'none';
+    $('mp-join').classList.remove('hidden');
+    $('mp-lobby').classList.add('hidden');
+    show('home');
+    renderRounds();
+  }
+}
+
+/* ---------- MP wiring ---------- */
+function mpUpdateHostConfig() {
+  if (MP.active && MP.uid === MP.host) {
+    const db = mpDb();
+    const rm = resolvedMap(MP.mapKey);
+    db.ref('guecs_rooms/' + MP.code).update({
+      map: MP.mapKey, roundsTotal: MP.roundsTotal,
+      spots: rm.spots, sectors: rm.sectors,
+    });
+  }
+}
+$('mp-btn').onclick = () => { show('mp'); };
+$('mp-host-btn').onclick = mpCreateRoom;
+$('mp-join-btn').onclick = mpJoinRoom;
+$('mp-leave-btn').onclick = () => mpLeave(false);
+$('mp-back-btn').onclick = () => { if (MP.active) mpLeave(false); else { show('home'); } };
+$('mp-done-btn').onclick = () => mpLeave(false);
+$('mp-rounds-minus').onclick = () => {
+  MP.roundsTotal = Math.max(MIN_ROUNDS, MP.roundsTotal - 1);
+  $('mp-rounds-val').textContent = MP.roundsTotal;
+  mpUpdateHostConfig();
+};
+$('mp-rounds-plus').onclick = () => {
+  MP.roundsTotal = Math.min(20, MP.roundsTotal + 1);
+  $('mp-rounds-val').textContent = MP.roundsTotal;
+  mpUpdateHostConfig();
+};
+document.querySelectorAll('#mp-map-tabs .map-tab').forEach(btn => {
+  btn.onclick = () => {
+    MP.mapKey = btn.dataset.map;
+    document.querySelectorAll('#mp-map-tabs .map-tab').forEach(b => b.classList.toggle('active', b === btn));
+    mpUpdateHostConfig();
+  };
+});
+$('mp-start-btn').onclick = () => {
+  if (MP.uid !== MP.host) return;
+  const db = mpDb();
+  const map = MP.mpMap || mpRoomMap({ map: MP.mapKey });
+  const spots = (map.locations || []);
+  const spotIdx = Math.floor(Math.random() * spots.length);
+  const cur = {
+    round: 1,
+    startedAt: Date.now(),
+    timeoutAt: Date.now() + 2000 + ROUND_SECONDS * 1000,   // ~2s countdown, then play
+    spotIdx,
+    ox: +(0.1 + Math.random() * 0.8).toFixed(3),
+    oy: +(0.1 + Math.random() * 0.8).toFixed(3),
+    phase: 'play',
+    guesses: {},
+    results: {},
+    trueSec: -1,
+  };
+  db.ref('guecs_rooms/' + MP.code).update({ status: 'playing', round: 1, current: cur });
+};
+
+/* initial */
+bindMapTabs();
+document.querySelectorAll('.map-tab').forEach(b => b.classList.toggle('active', b.dataset.map === mapKey));
+$('map-name').textContent = MAPS[mapKey].name;
+setMapBg(mapKey);
+show('home');
+</script>
+</body>
+</html>

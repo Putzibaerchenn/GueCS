@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GueCS — Guess the Spot</title>
+<link rel="stylesheet" href="theme.css">
+<script>
+  /* apply saved color theme before first paint, so launcher matches the game */
+  try { var t = localStorage.getItem('guecs_theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<style>
+  main {
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 32px;
+    position: relative; z-index: 1;
+  }
+  .launcher {
+    display: flex; flex-direction: column; align-items: center; gap: 20px;
+    padding: 48px 40px; max-width: 480px; width: 100%;
+  }
+  .tagline { color: var(--muted); font-size: 15px; line-height: 1.6; max-width: 380px; }
+  .tagline strong { color: var(--text); }
+  .maps-line {
+    color: var(--muted-2); font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 2px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .maps-line .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+  .maps-line .dot:last-child { background: var(--muted-2); }
+  .hud-hint { color: var(--muted-2); font-size: 12px; margin-top: 4px; }
+  footer { position: fixed; left: 0; right: 0; bottom: 16px; text-align: center; }
+  footer a {
+    color: var(--muted-2); text-decoration: none; font-size: 12px;
+    border: 3px solid var(--line); border-radius: var(--pill);
+    padding: 6px 14px; transition: color .15s ease, border-color .15s ease;
+    box-shadow: var(--edge-glow-sm);
+  }
+  footer a:hover { color: var(--text); border-color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="fluid-bg" aria-hidden="true"></div>
+<main>
+  <div class="card launcher">
+    <h1 class="wordmark">GueCS</h1>
+    <p class="tagline">GeoGuessr for Counter&#8209;Strike maps. Look at the screenshot, drop a pin — <strong>Dust&nbsp;II</strong> and <strong>Mirage</strong>.</p>
+    <div class="maps-line"><span class="dot"></span> Dust II <span class="dot"></span> Mirage</div>
+    <a class="btn-primary" href="guecs.html">▶ Play GueCS</a>
+    <p class="hud-hint">30-second timer · no repeats · no speed bonus</p>
+  </div>
+  <footer><a href="prototype.html">Layout prototype (dev)</a></footer>
+</main>
+</body>
+</html>

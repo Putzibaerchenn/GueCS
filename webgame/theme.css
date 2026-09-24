@@ -1,0 +1,183 @@
+@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&display=swap");
+
+/* ============================================================
+   GueCS — shared theme
+   Design tokens + base reset + brand components, used by
+   index.html (launcher), guecs.html (game), calibrate.html (tool).
+   Page-specific layout CSS lives in each file's own <style>.
+   ============================================================ */
+:root {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --bg-deep: #090d12;
+  --panel: #161b22;
+  --panel-2: #1c222c;
+  --line: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --muted-2: #6e7681;
+  --accent: #f0a519;
+  --accent-hover: #ffc44d;
+  --accent-dark: #b8770f;
+  --on-accent: #1a1202;
+  --accent-line: color-mix(in srgb, var(--accent) 50%, transparent);
+  --edge-glow: 0 0 24px color-mix(in srgb, var(--accent) 42%, transparent), 0 0 64px color-mix(in srgb, var(--accent) 22%, transparent);
+  --edge-glow-sm: 0 0 12px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 30px color-mix(in srgb, var(--accent) 15%, transparent);
+  --good: #3fb950;
+  --bad: #f85149;
+  /* "you picked this region" glow — green by default; red where the theme
+     itself is green so the selection stays visible */
+  --sel: #3fb950;
+  --radius: 12px;
+  --radius-lg: 20px;
+  --pill: 999px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --shadow-lg: 0 10px 40px rgba(0, 0, 0, .5);
+}
+
+/* ---------- color themes (accent swap via [data-theme]) ----------
+   Default (no data-theme / "orange") is the :root block above.
+   A theme only overrides the accent family; everything themed uses
+   var(--accent) / var(--accent-hover) / var(--accent-dark) / var(--on-accent). */
+:root[data-theme="purple"] {
+  --accent: #a371f7;
+  --accent-hover: #c49bff;
+  --accent-dark: #8250e0;
+  --on-accent: #170c2e;
+}
+:root[data-theme="green"] {
+  --accent: #3fb950;
+  --accent-hover: #57d976;
+  --accent-dark: #2ea043;
+  --on-accent: #0a2412;
+  --sel: #ff5a47;
+}
+:root[data-theme="red"] {
+  --accent: #ff5a47;
+  --accent-hover: #ff8577;
+  --accent-dark: #d63b2a;
+  --on-accent: #2b0a05;
+}
+:root[data-theme="cyan"] {
+  --accent: #22d3ee;
+  --accent-hover: #67e8f9;
+  --accent-dark: #0ea5e9;
+  --on-accent: #0c2b33;
+}
+:root[data-theme="white"] {
+  --accent: #f2f4f8;
+  --accent-hover: #ffffff;
+  --accent-dark: #c9ced6;
+  --on-accent: #0d1117;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html {
+  background:
+    radial-gradient(820px 600px at 50% 44%, var(--spot), transparent 70%),
+    radial-gradient(1200px 520px at 50% -6%, var(--glow), transparent 62%),
+    radial-gradient(900px 600px at 50% 112%, rgba(63, 185, 80, .05), transparent 60%),
+    var(--bg);
+}
+html, body { height: 100%; }
+body {
+  background: transparent; color: var(--text);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---------- fluid background ----------
+   An oversized stage layer behind the UI that continuously circulates
+   (linear spin) so the color streams like liquid instead of swaying.
+   Two crossing streams — the layer rolls one way, its ::after the other. */
+.fluid-bg {
+  position: fixed; inset: -30%;
+  z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(38% 44% at 26% 30%, var(--wave-a), transparent 70%),
+    radial-gradient(42% 46% at 70% 36%, var(--wave-b), transparent 70%),
+    radial-gradient(40% 48% at 42% 74%, var(--wave-a), transparent 72%);
+  background-repeat: no-repeat;
+  animation: fluid-roll 80s linear infinite;
+  will-change: transform;
+}
+.fluid-bg::after {
+  content: "";
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(36% 42% at 62% 28%, var(--wave-b), transparent 70%),
+    radial-gradient(30% 38% at 30% 66%, var(--wave-a), transparent 72%);
+  background-repeat: no-repeat;
+  animation: fluid-roll-rev 110s linear infinite;
+}
+@keyframes fluid-roll {
+  from { transform: rotate(0deg) scale(1); }
+  50%  { transform: rotate(180deg) scale(1.09); }
+  to   { transform: rotate(360deg) scale(1); }
+}
+@keyframes fluid-roll-rev {
+  from { transform: rotate(360deg) scale(1.06); }
+  to   { transform: rotate(0deg) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fluid-bg, .fluid-bg::after { animation: none; }
+}
+button { font-family: inherit; cursor: pointer; user-select: none; }
+::selection { background: var(--accent); color: var(--on-accent); }
+
+:root { --glow: rgba(240, 165, 25, .08); --spot: rgba(240, 165, 25, .13); --wave-a: rgba(240, 165, 25, .07); --wave-b: rgba(255, 196, 77, .05); }
+:root[data-theme="purple"] { --glow: rgba(163, 113, 247, .09); --spot: rgba(163, 113, 247, .15); --wave-a: rgba(163, 113, 247, .08); --wave-b: rgba(196, 155, 255, .05); }
+:root[data-theme="green"] { --glow: rgba(63, 185, 80, .08); --spot: rgba(63, 185, 80, .13); --wave-a: rgba(63, 185, 80, .07); --wave-b: rgba(87, 217, 118, .05); }
+:root[data-theme="red"] { --glow: rgba(255, 90, 71, .09); --spot: rgba(255, 90, 71, .15); --wave-a: rgba(255, 90, 71, .08); --wave-b: rgba(255, 133, 119, .05); }
+:root[data-theme="cyan"] { --glow: rgba(34, 211, 238, .09); --spot: rgba(34, 211, 238, .15); --wave-a: rgba(34, 211, 238, .08); --wave-b: rgba(103, 232, 249, .05); }
+:root[data-theme="white"] { --glow: rgba(242, 244, 248, .10); --spot: rgba(242, 244, 248, .16); --wave-a: rgba(242, 244, 248, .08); --wave-b: rgba(255, 255, 255, .05); }
+
+/* keyboard focus — visible on any interactive element */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- brand ---------- */
+.wordmark {
+  font-family: "Rajdhani", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: clamp(44px, 8vw, 62px);
+  font-weight: 700; letter-spacing: 4px; line-height: 1.05;
+  background: linear-gradient(180deg, var(--accent-hover) 0%, var(--accent) 60%, var(--accent-dark) 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
+/* ---------- components ---------- */
+.card {
+  background: var(--panel);
+  border: 3px solid var(--accent-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg), var(--edge-glow);
+}
+
+.btn-primary {
+  display: inline-block; text-align: center;
+  background: var(--accent); color: var(--on-accent);
+  border: none; text-decoration: none;
+  font-size: 18px; font-weight: 700;
+  padding: 16px 48px; border-radius: 14px;
+  transition: background .15s ease, transform .1s ease;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:active { transform: scale(.97); }
+
+.pill {
+  background: rgba(10, 14, 20, .72);
+  border: 3px solid var(--accent-line);
+  border-radius: var(--pill);
+  backdrop-filter: blur(4px);
+  box-shadow: var(--edge-glow-sm);
+}
+
+/* ---------- desktop hover, touch-proof ---------- */
+@media (hover: hover) and (pointer: fine) {
+  .map-tab:not(.active):hover { color: var(--text); border-color: var(--accent-dark); }
+  .rounds-stepper button:hover { background: #263040; border-color: var(--muted); }
+}
